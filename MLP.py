@@ -13,38 +13,36 @@ import numpy as np
 class MLP(object):
 
   """
-    __init__ takes 5 arguments and initializes attributes:
-      1) epochs, the number of iterations through the training data
-      2) learning_rate, c
-      3) seed, seed for random
-      4) n_layer_nodes, the number of nodes per layer - also used to find the number of hidden layers; first value matches dimension of inputs
-      5) momentum, alpha
-      6) verbose, flag
+    __init__ takes 3 arguments and initializes attributes:
+      1) seed, seed for random
+      2) n_layer_nodes, the number of nodes per layer - also used to find the number of hidden layers; first value matches dimension of inputs
+      3) verbose, flag
   """
 
   def __init__(
     self,
     seed=None,
-    epochs=300,
-    learning_rate=0.1,
     n_layer_nodes=[3,3,3,3],
-    momentum=0.1,
     verbose=False
   ):
     np.random.seed(seed)
-    self.epochs = epochs
     self.verbose = verbose
-    n_layer_nodes.insert(0, n_layer_nodes[0])
+    self.pred_training = []
+    self.truth_training = []
+    self.error_record = []
+    # instantiate layers
+    # the layers attribute holds Layer objects
+    # each Layer object has an attribute representing the
+    # weights leading into the layer, including the output layer.
+    # the layer is responsible for calculating and activating
+    # its own output, and for performing its own backprop
     self.layers = [
       Layer(
         n_layer_nodes[i-1],
         n_layer_nodes[i],
-        learning_rate,
-        momentum,
         seed
       )
-        for i in range(len(n_layer_nodes))
-        if i != 0
+        for i in range(1, len(n_layer_nodes))
     ]
 
   """
@@ -62,31 +60,46 @@ class MLP(object):
     return(inputs)
 
   """
-    train takes 2 arguments and uses backprop to update the weights based on the training data, returns self for chaining:
+    train takes 5 arguments and uses backprop to update the weights based on the training data, returns self for chaining:
       1) training_inputs, ndarray of training feature space
       2) labels, 2d-ndarray of classes in one-hot-encoded representation
+      3) epochs
+      4) learning_rate
+      5) momentum
   """
 
   def train(
     self,
     training_inputs,
-    outputs
+    outputs,
+    epochs=1,
+    learning_rate=0.1,
+    momentum=0.1
   ):
-    for i in range(self.epochs):
+    for i in range(epochs): # loop epochs
       if self.verbose:
-        print('Epoch', i, 'started.')
+        print('Epoch', i + 1, 'started.')
       trial = 0
-      for inputs, output in zip(training_inputs, outputs):
+      for inputs, output in zip(training_inputs, outputs): # loop records
         if self.verbose:
           trial += 1
-          if trial % 25000 == 0:
+          if trial % 1000 == 0:
             print('    Trial', trial, '/', outputs.size, 'running')
         prediction = self.predict_record(inputs)
+        if self.verbose:
+          pred_class = np.argmax(prediction)
+          truth_class = np.argmax(output)
+          print('Pred:', pred_class, 'Actual:', truth_class)
+        self.pred_training.append(prediction)
+        self.truth_training.append(output)
         delta = output - prediction
-        error = self.error(delta)
+        error = self.error(delta) # calculate SSE
+        self.error_record.append(error)
+        if self.verbose:
+          print('    Trial', trial, 'error:', error)
         if error != 0:
-          for layer in reversed(self.layers):
-            delta = layer.backprop(delta)
+          for layer in reversed(self.layers): # loop layers backwards for backprop
+            delta = layer.backprop(delta, learning_rate, momentum)
 
     return(self)
 
@@ -131,26 +144,20 @@ class Layer(object):
     __init__ takes 3 arguments and initializes attributes:
       1) dim_prev, the number of nodes in the previous layer
       2) dim, the number of nodes in the current layer
-      3) learning rate, c
-      4) momentum, alpha
-      5) seed, seed for random
+      3) seed, seed for random
   """
 
   def __init__(
     self,
     dim_prev,
     dim,
-    learning_rate=0.1,
-    momentum=0.1,
     seed=None
   ):
     np.random.seed(seed)
-    self.weights = np.random.rand(dim_prev + 1, dim)
+    self.weights = np.random.rand(dim_prev + 1, dim) * 0.0001
     self.previous = np.zeros((dim_prev + 1, dim)) # for momentum
     self.inputs = np.zeros(dim_prev + 1)
     self.outputs = np.zeros(dim)
-    self.learning_rate = learning_rate
-    self.momentum = momentum
 
   """
     output takes 1 argument and returns an output for the layer:
@@ -166,19 +173,23 @@ class Layer(object):
     return(self.outputs)
 
   """
-    backprop takes 2 arguments and updates weights, returns delta for next layer:
+    backprop takes 3 arguments and updates weights, returns delta for next layer:
       1) delta, ndarray of node-output delta
+      2) learning_rate, allows dynamic changes throughout learning
+      3) momentum, allows dynamic changes throughout learning
   """
 
   def backprop(
     self,
-    delta
+    delta,
+    learning_rate,
+    momentum
   ):
-    errorTerm = np.tile(np.transpose(delta * self.outputs * (1 - self.outputs)), (self.inputs.size, 1))
-    change = self.learning_rate * errorTerm * np.transpose(np.tile(self.inputs, (self.outputs.size, 1))) + self.momentum * self.previous
+    errorTerm = delta * self.outputs * (1 - self.outputs)
+    change = learning_rate * np.outer(self.inputs, errorTerm) + momentum * self.previous
     self.weights += change
     self.previous = change
-    return(np.sum(errorTerm[1:] * self.weights[1:], axis=1))
+    return(np.sum(errorTerm * self.weights[1:], axis=1))
 
   def sigmoid(
     self,

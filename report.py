@@ -59,10 +59,9 @@ class Report(object):
         if row == column:
           matrixRow.append(tp[column])
         else:
-          preds = np.where(self.pred == row)[0]
           matrixRow.append(sum([
-            self.truth[i] != self.pred[i]
-            for i in preds
+            self.pred[i] == row and self.truth[i] == column
+            for i in range(len(self.pred))
           ]))
       matrix.append(matrixRow)
     return(np.array(matrix))
